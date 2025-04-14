@@ -5,7 +5,13 @@ import os
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:seven@localhost/project_db")
 
 engine = create_async_engine(DATABASE_URL, echo=True)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, class_=AsyncSession)
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False  
+)
 
 async def get_db():
     async with SessionLocal() as session:

@@ -1,9 +1,12 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.db.models.health_diary import HealthDiary
-from app.db.models.user import User  # Import User model to validate user existence
+from app.db.models.user import User  
 from app.schemas.health_diary import HealthDiaryCreate, HealthDiaryUpdate
 from datetime import datetime
+from datetime import datetime, timedelta
+from sqlalchemy.orm import selectinload
+
 
 async def create_health_diary(db: AsyncSession, diary: HealthDiaryCreate):
     # Check if the user exists
@@ -20,7 +23,7 @@ async def create_health_diary(db: AsyncSession, diary: HealthDiaryCreate):
     new_entry = HealthDiary(
         user_id=diary.user_id,
         date=diary_date,
-        symptoms=diary.symptoms,  # Ensure symptoms field is included
+        symptoms=diary.symptoms,  
         mood=diary.mood,
         notes=diary.notes
     )
@@ -62,3 +65,66 @@ async def update_health_diary(db: AsyncSession, entry_id: int, diary_update: Hea
     await db.commit()
     await db.refresh(entry)
     return entry
+
+async def get_recent_entries(db: AsyncSession, hours: int = 24):
+    """
+    Get all health diary entries from the last X hours.
+    """
+    time_threshold = datetime.utcnow() - timedelta(hours=hours)
+    stmt = select(HealthDiary).where(HealthDiary.date >= time_threshold).options(
+        selectinload(HealthDiary.user)  # Assuming relationship to User
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+async def get_latest_entry(db: AsyncSession, user_id: int):
+    stmt = (
+        select(HealthDiary)
+        .where(HealthDiary.user_id == user_id)
+        .order_by(HealthDiary.date.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    return result.scalars().first()
+
+
+async def get_mood_entries_with_time(db: AsyncSession, user_id: int, days: int = 7):
+    since = datetime.utcnow() - timedelta(days=days)
+
+    stmt = (
+        select(HealthDiary.date, HealthDiary.mood)
+        .where(
+            HealthDiary.user_id == user_id,
+            HealthDiary.date >= since,
+            HealthDiary.mood.isnot(None)
+        )
+    )
+    result = await db.execute(stmt)
+    return result.all()
+
+from sqlalchemy import func
+
+async def get_mood_counts(db: AsyncSession, user_id: int, days: int = 7):
+    since = datetime.utcnow() - timedelta(days=days)
+
+    stmt = (
+        select(HealthDiary.mood, func.count())
+        .where(
+            HealthDiary.user_id == user_id,
+            HealthDiary.date >= since,
+            HealthDiary.mood.isnot(None)
+        )
+        .group_by(HealthDiary.mood)
+    )
+    result = await db.execute(stmt)
+    return dict(result.all())
+
+async def get_last_diary_entry_date(db: AsyncSession, user_id: int):
+    stmt = (
+        select(HealthDiary.date)
+        .where(HealthDiary.user_id == user_id)
+        .order_by(HealthDiary.date.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    return result.scalar()

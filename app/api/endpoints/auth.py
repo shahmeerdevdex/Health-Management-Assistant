@@ -50,7 +50,7 @@ async def login_json(request: Request, login_data: LoginRequest, db: AsyncSessio
 
 
 #  New OAuth2-based login for Swagger UI (expects username instead of email)
-@router.post("/token", response_model=TokenResponse)
+@router.post("/token", response_model=TokenResponse,include_in_schema=False)
 async def login_oauth2(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)): 
     """
     Handles user authentication using OAuth2PasswordRequestForm (for Swagger UI login).
@@ -65,8 +65,9 @@ async def login_oauth2(form_data: OAuth2PasswordRequestForm = Depends(), db: Asy
     Raises:
         HTTPException: If the provided credentials are invalid.
     """
+    email = form_data.username
 
-    user = await authenticate_user(db, form_data.username, form_data.password)
+    user = await authenticate_user(db, email, form_data.password)
 
     if not user:
         raise HTTPException(status_code=400, detail="Invalid credentials")

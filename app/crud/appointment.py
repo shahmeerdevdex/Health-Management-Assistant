@@ -7,7 +7,6 @@ from datetime import datetime
 async def create_appointment(db: AsyncSession, user_id: int, app: AppointmentCreate):
     """Create a new appointment, ensuring datetime is naive (no timezone)."""
     
-    # Convert datetime to naive (remove timezone)
     appointment_date = app.date
     if appointment_date.tzinfo is not None:
         appointment_date = appointment_date.astimezone().replace(tzinfo=None)
@@ -23,7 +22,7 @@ async def create_appointment(db: AsyncSession, user_id: int, app: AppointmentCre
     await db.commit()
     await db.refresh(appointment)
 
-    # Convert to dictionary for FastAPI serialization
+    
     return AppointmentResponse(
         id=appointment.id,
         user_id=appointment.user_id,
@@ -79,3 +78,21 @@ async def update_appointment(db: AsyncSession, appointment_id: int, appointment_
         date=appointment.date,
         location=appointment.location
     )
+
+async def get_upcoming_appointments(db: AsyncSession, user_id: int):
+    """
+    Retrieve upcoming appointments for a user (from now into the future).
+    """
+    now = datetime.utcnow()
+
+    stmt = (
+        select(Appointment)
+        .where(
+            Appointment.user_id == user_id,
+            Appointment.date >= now
+        )
+        .order_by(Appointment.date.asc())
+        .limit(5)  # optionally limit to next 5
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()

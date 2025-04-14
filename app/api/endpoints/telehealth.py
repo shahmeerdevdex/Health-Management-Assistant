@@ -4,48 +4,51 @@ from app.db.session import get_db
 from app.crud.telehealth import create_telehealth_session, get_active_sessions
 from app.schemas.telehealth import TelehealthSessionCreate, TelehealthSessionResponse
 from typing import List
-from app.services.auth_service import verify_access_token
-from app.db.models.user import User  
+from app.api.endpoints.dependencies import get_current_user  # Import the correct authentication function
 from app.db.models.telehealth import TelehealthSession  
 from sqlalchemy.future import select
-from app.api.endpoints.dependencies import get_current_user
-
 
 router = APIRouter()
 
-@router.post("/telehealth/start-session", response_model=TelehealthSessionResponse)
+@router.post("/start-session", response_model=TelehealthSessionResponse)
 async def start_telehealth_session(
     session_data: TelehealthSessionCreate,
     db: AsyncSession = Depends(get_db),
-    token_data: dict = Depends(verify_access_token),
+    current_user=Depends(get_current_user)  # Fetches the authenticated user
 ):
     """
     Start a new telehealth session between a user and a practitioner.
-    Requires authentication.
+
+    - Requires authentication via access token.
+    - Creates a new telehealth session.
+    - Returns the created telehealth session details.
     """
     return await create_telehealth_session(db, session_data)
 
-@router.get("/telehealth/sessions", response_model=List[TelehealthSessionResponse])
+@router.get("/sessions", response_model=List[TelehealthSessionResponse])
 async def list_active_sessions(
-    user_id: int,
     db: AsyncSession = Depends(get_db),
-    token_data: dict = Depends(verify_access_token),
+    current_user=Depends(get_current_user)  # Fetches the authenticated user
 ):
     """
-    Retrieve active telehealth sessions for a user.
+    Retrieve active telehealth sessions for the authenticated user.
+
+    - Requires authentication via access token.
+    - Returns a list of active telehealth sessions for the authenticated user.
     """
-    return await get_active_sessions(db, user_id)
+    return await get_active_sessions(db, current_user.id)  # Uses authenticated user's ID
 
-
-@router.put("/telehealth/end-session/{session_id}")
+@router.put("/end-session/{session_id}")
 async def end_telehealth_session(
     session_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_user)  # Fetches the authenticated user
 ):
     """
     End a telehealth session by marking it as 'ended'.
-    Only the user or the practitioner who initiated the session can end it.
+
+    - Requires authentication via access token.
+    - Only the user or the practitioner who initiated the session can end it.
     """
     result = await db.execute(select(TelehealthSession).where(TelehealthSession.id == session_id))
     session = result.scalars().first()

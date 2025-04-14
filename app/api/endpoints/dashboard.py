@@ -1,45 +1,31 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.core.ai_services import detect_health_patterns
-from app.services.auth_service import verify_access_token
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.api.endpoints.dependencies import get_current_user, get_db
+from app.services.dashboard import build_user_dashboard
+from app.services.ai_services import detect_health_patterns
 
 router = APIRouter()
 
-
-@router.get("/dashboard/{user_id}")
+@router.get("/")
 async def get_dashboard_endpoint(
-    user_id: int,
-    token_data: dict = Depends(verify_access_token),
+    db: AsyncSession = Depends(get_db),
+    db_user=Depends(get_current_user)
 ):
     """
-    Fetch dashboard data for a user.
-
-    - **Requires Authentication** via access token.
-    - **Parameters:**
-        - `user_id`: The ID of the user whose dashboard data is being requested.
-        - `token_data`: The decoded access token to ensure authentication.
-    - **Returns:** A JSON object with dashboard data.
+    Professional user dashboard:
+    - Latest mood entry
+    - Pending medications
+    - Upcoming appointments
+    - Notifications
+    - Subscription
+    - AI Insights
     """
-    if token_data["user_id"] != user_id:
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    return {"message": f"Dashboard data for user {user_id}"}
+    dashboard_data = await build_user_dashboard(db, db_user.id)
+    return dashboard_data
 
 
-@router.post("/dashboard/ai-insights")
+@router.post("/ai-insights")
 async def get_ai_insights_endpoint(
-    user_id: int,
-    token_data: dict = Depends(verify_access_token),
+    db_user=Depends(get_current_user)
 ):
-    """
-    Fetch AI-driven insights for the user's health patterns.
-
-    - **Requires Authentication** via access token.
-    - **Parameters:**
-        - `user_id`: The ID of the user for whom AI insights are requested.
-        - `token_data`: The decoded access token to ensure authentication.
-    - **Returns:** AI-driven health insights based on the user's health data.
-    """
-    if token_data["user_id"] != user_id:
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    return await detect_health_patterns(user_id)
+    return await detect_health_patterns(db_user.id)

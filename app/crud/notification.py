@@ -6,9 +6,10 @@ from app.db.models.user import User
 from app.schemas.notification import NotificationCreate
 from datetime import datetime
 from fastapi import HTTPException
+from sqlalchemy import delete
 
 async def create_notification(db: AsyncSession, notification: NotificationCreate):
-    #  Check if user exists to prevent ForeignKeyViolationError
+  
     result = await db.execute(select(User).filter(User.id == notification.user_id))
     user = result.scalars().first()
 
@@ -29,3 +30,33 @@ async def create_notification(db: AsyncSession, notification: NotificationCreate
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status_code=400, detail="Error inserting notification. Possible constraint violation.")
+
+async def get_notifications(db: AsyncSession, user_id: int):
+    """
+    Retrieve all notifications for a specific user.
+    """
+    result = await db.execute(
+        select(Notification).where(Notification.user_id == user_id)
+    )
+    return result.scalars().all()
+
+
+async def delete_notification(db: AsyncSession, notification_id: int, user_id: int):
+    """
+    Delete a notification by its ID and user ID for ownership validation.
+    """
+    result = await db.execute(
+        select(Notification).where(
+            Notification.id == notification_id,
+            Notification.user_id == user_id
+        )
+    )
+    notification = result.scalars().first()
+
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found or access denied")
+
+    await db.delete(notification)
+    await db.commit()
+
+    return {"detail": "Notification deleted successfully"}
