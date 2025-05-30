@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.db.models.medication import Medication
 from app.schemas.medication import MedicationCreate, MedicationUpdate
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 
 async def create_medication(db: AsyncSession, med: MedicationCreate):
     medication = Medication(
@@ -55,3 +55,23 @@ async def update_medication(db: AsyncSession, med_id: int, med_update: Medicatio
     await db.refresh(medication)
     
     return medication 
+
+
+async def get_today_medications(db: AsyncSession, user_id: int):
+    """
+    Retrieves active medications for a user.
+    """
+    today = datetime.utcnow()
+    result = await db.execute(
+        select(Medication)
+        .filter(
+            Medication.user_id == user_id,
+            Medication.start_date <= today,
+            (Medication.end_date.is_(None) | (Medication.end_date >= today))
+        )
+    )
+    return result.scalars().all()
+
+async def get_user_medications(db: AsyncSession, user_id: int):
+    # Dummy implementation for get_user_medications
+    return []

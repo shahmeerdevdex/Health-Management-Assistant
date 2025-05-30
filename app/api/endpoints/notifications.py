@@ -1,40 +1,53 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List
+
 from app.db.session import get_db
 from app.schemas.notification import NotificationCreate, NotificationResponse
-from app.crud.notification import create_notification
-from app.services.auth_service import verify_access_token  
+from app.crud.notification import (
+    create_notification,
+    get_notifications,
+    delete_notification
+)
+from app.api.endpoints.dependencies import get_current_user  
 
 router = APIRouter()
 
-@router.post("/notifications/send", response_model=NotificationResponse)
+@router.post("/send", response_model=NotificationResponse)
 async def send_notification_endpoint(
     notification: NotificationCreate, 
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(verify_access_token)  
+    current_user=Depends(get_current_user)  
 ):
     """
-     **Send a Notification**
-    
-    This endpoint allows authenticated users to send notifications.
-
-    ###  Requirements:
-    - **Authentication:** Must provide a valid access token.
-    - **Database Storage:** The notification is saved in the database.
-    
-    ###  Request Body:
-    - `user_id` (int): ID of the recipient user.
-    - `message` (str): The notification message.
-
-    ###  Response:
-    - Returns the created notification object with `id`, `user_id`, `message`, and `sent_at`.
-
-    ###  Error Handling:
-    - **400 Bad Request:** If the notification fails to save.
+    Send a notification.
     """
     new_notification = await create_notification(db, notification)
 
     if not new_notification:
         raise HTTPException(status_code=400, detail="Failed to send notification.")
 
-    return new_notification  # Return structured response
+    return new_notification 
+
+
+@router.get("/", response_model=List[NotificationResponse])
+async def get_notifications_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Get all notifications for the authenticated user.
+    """
+    return await get_notifications(db, current_user.id)
+
+
+@router.delete("/{notification_id}")
+async def delete_notification_endpoint(
+    notification_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Delete a specific notification belonging to the authenticated user.
+    """
+    return await delete_notification(db, notification_id, current_user.id)

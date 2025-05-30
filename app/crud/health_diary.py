@@ -1,9 +1,14 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.db.models.health_diary import HealthDiary
-from app.db.models.user import User  # Import User model to validate user existence
+from app.db.models.user import User  
 from app.schemas.health_diary import HealthDiaryCreate, HealthDiaryUpdate
 from datetime import datetime
+from datetime import datetime, timedelta
+from sqlalchemy.orm import selectinload
+from typing import Dict,Any
+from collections import Counter
+
 
 async def create_health_diary(db: AsyncSession, diary: HealthDiaryCreate):
     # Check if the user exists
@@ -20,7 +25,7 @@ async def create_health_diary(db: AsyncSession, diary: HealthDiaryCreate):
     new_entry = HealthDiary(
         user_id=diary.user_id,
         date=diary_date,
-        symptoms=diary.symptoms,  # Ensure symptoms field is included
+        symptoms=diary.symptoms,  
         mood=diary.mood,
         notes=diary.notes
     )
@@ -62,3 +67,126 @@ async def update_health_diary(db: AsyncSession, entry_id: int, diary_update: Hea
     await db.commit()
     await db.refresh(entry)
     return entry
+
+async def get_recent_entries(db: AsyncSession, hours: int = 24):
+    """
+    Get all health diary entries from the last X hours.
+    """
+    time_threshold = datetime.utcnow() - timedelta(hours=hours)
+    stmt = select(HealthDiary).where(HealthDiary.date >= time_threshold).options(
+        selectinload(HealthDiary.user)  # Assuming relationship to User
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+async def get_latest_entry(db: AsyncSession, user_id: int):
+    stmt = (
+        select(HealthDiary)
+        .where(HealthDiary.user_id == user_id)
+        .order_by(HealthDiary.date.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    return result.scalars().first()
+
+
+async def get_mood_entries_with_time(db: AsyncSession, user_id: int, days: int = 7):
+    since = datetime.utcnow() - timedelta(days=days)
+
+    stmt = (
+        select(HealthDiary.date, HealthDiary.mood)
+        .where(
+            HealthDiary.user_id == user_id,
+            HealthDiary.date >= since,
+            HealthDiary.mood.isnot(None)
+        )
+    )
+    result = await db.execute(stmt)
+    return result.all()
+
+from sqlalchemy import func
+
+async def get_mood_counts(db: AsyncSession, user_id: int, days: int = 7):
+    since = datetime.utcnow() - timedelta(days=days)
+
+    stmt = (
+        select(HealthDiary.mood, func.count())
+        .where(
+            HealthDiary.user_id == user_id,
+            HealthDiary.date >= since,
+            HealthDiary.mood.isnot(None)
+        )
+        .group_by(HealthDiary.mood)
+    )
+    result = await db.execute(stmt)
+    return dict(result.all())
+
+async def get_last_diary_entry_date(db: AsyncSession, user_id: int):
+    stmt = (
+        select(HealthDiary.date)
+        .where(HealthDiary.user_id == user_id)
+        .order_by(HealthDiary.date.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    return result.scalar()
+
+from collections import Counter
+from sqlalchemy import func
+
+async def get_health_summary(db: AsyncSession, user_id: int, days: int = 30) -> Dict[str, Any]:
+    """
+    Generate a summary of user's health diary data over the past `days`.
+    """
+    since = datetime.utcnow() - timedelta(days=days)
+
+    # Fetch recent entries
+    stmt = (
+        select(HealthDiary)
+        .where(
+            HealthDiary.user_id == user_id,
+            HealthDiary.date >= since
+        )
+    )
+    result = await db.execute(stmt)
+    entries = result.scalars().all()
+
+    if not entries:
+        return {
+            "total_entries": 0,
+            "most_recent_mood": None,
+            "frequent_symptoms": [],
+            "last_entry_date": None,
+            "mood_distribution": {}
+        }
+
+    # Total entries
+    total_entries = len(entries)
+
+    # Most recent mood
+    sorted_entries = sorted(entries, key=lambda x: x.date, reverse=True)
+    most_recent_mood = sorted_entries[0].mood
+
+    # Last entry date
+    last_entry_date = sorted_entries[0].date
+
+    # Collect symptoms
+    symptom_counter = Counter()
+    for entry in entries:
+        if entry.symptoms:
+            # Symptoms are already a list, no need to split
+            symptom_counter.update([s.lower() for s in entry.symptoms])
+
+    frequent_symptoms = [symptom for symptom, _ in symptom_counter.most_common(3)]
+
+    # Mood distribution
+    mood_counter = Counter(entry.mood for entry in entries if entry.mood)
+    mood_distribution = dict(mood_counter)
+
+    return {
+        "total_entries": total_entries,
+        "most_recent_mood": most_recent_mood,
+        "frequent_symptoms": frequent_symptoms,
+        "last_entry_date": last_entry_date,
+        "mood_distribution": mood_distribution
+    }

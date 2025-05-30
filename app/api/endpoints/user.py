@@ -3,46 +3,37 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.db.session import get_db
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
-from app.crud.user import create_user, get_user, update_user
+from app.crud.user import create_user, update_user,delete_user
 from app.db.models.user import User
-from app.services.auth_service import verify_access_token  
+from app.api.endpoints.dependencies import get_current_user
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 router = APIRouter()
 
-@router.post("/users/create", response_model=UserResponse)
+@router.post("/create", response_model=UserResponse)
 async def create_user_endpoint(user: UserCreate, db: AsyncSession = Depends(get_db)):
     """
     Register a new user.
-
-    This is a public endpoint that allows new users to create an account.
-
-    Args:
-        user (UserCreate): The user registration details including email, full name, and password.
-        db (AsyncSession): Database session dependency.
-
-    Returns:
-        UserResponse: The newly created user object.
     """
-    new_user = await create_user(db, user)  
-    return new_user
+    new_user = await create_user(db, user)
 
-@router.get("/users/{user_id}", response_model=UserResponse, dependencies=[Depends(verify_access_token)])
-async def get_user_endpoint(user_id: int, db: AsyncSession = Depends(get_db)):
+    # Refresh the user from the DB with all fields eagerly loaded
+    result = await db.execute(
+        select(User).where(User.id == new_user.id)
+    )
+    loaded_user = result.scalars().first()
+
+    return loaded_user
+
+@router.get("/{user_id}", response_model=UserResponse)
+async def get_user_endpoint(
+    user_id: int, 
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
     """
     Retrieve user details by ID.
-
-    This is a protected endpoint that requires authentication. Users can fetch details 
-    of a specific user by providing the `user_id`.
-
-    Args:
-        user_id (int): The ID of the user to fetch.
-        db (AsyncSession): Database session dependency.
-
-    Returns:
-        UserResponse: The user details.
-
-    Raises:
-        HTTPException (404): If the user is not found.
     """
     result = await db.execute(select(User).where(User.id == user_id))  
     user = result.scalars().first()
@@ -52,24 +43,15 @@ async def get_user_endpoint(user_id: int, db: AsyncSession = Depends(get_db)):
 
     return user 
 
-@router.put("/users/update/{user_id}", response_model=UserResponse, dependencies=[Depends(verify_access_token)])
-async def update_user_endpoint(user_id: int, user_update: UserUpdate, db: AsyncSession = Depends(get_db)):
+@router.put("/update/{user_id}", response_model=UserResponse)
+async def update_user_endpoint(
+    user_id: int, 
+    user_update: UserUpdate, 
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
     """
     Update an existing user's details.
-
-    This is a protected endpoint that requires authentication. 
-    Users can update their information such as email or full name.
-
-    Args:
-        user_id (int): The ID of the user to update.
-        user_update (UserUpdate): The updated user details.
-        db (AsyncSession): Database session dependency.
-
-    Returns:
-        UserResponse: The updated user object.
-
-    Raises:
-        HTTPException (404): If the user is not found.
     """
     updated_user = await update_user(db, user_id, user_update)  
 
@@ -77,3 +59,32 @@ async def update_user_endpoint(user_id: int, user_update: UserUpdate, db: AsyncS
         raise HTTPException(status_code=404, detail="User not found")
 
     return updated_user
+
+@router.delete("/delete/{user_id}")
+async def delete_user_endpoint(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Delete a user by ID.
+
+    This is a **protected endpoint** that requires authentication.
+    Only the authenticated user can delete their own account (or an admin with proper permissions).
+
+    Args:
+        user_id (int): ID of the user to be deleted.
+        db (AsyncSession): Database session.
+        current_user (User): The currently authenticated user.
+
+    Returns:
+        dict: Confirmation message upon successful deletion.
+    """
+    if user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Operation not permitted")
+
+    success = await delete_user(db, user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {"detail": "User deleted successfully"}

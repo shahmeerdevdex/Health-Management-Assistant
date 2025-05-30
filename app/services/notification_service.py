@@ -1,3 +1,7 @@
+from datetime import datetime
+from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.models.notifications import Notification
 import logging
 from app.services.email_service import send_email
 from app.services.sms_service import send_sms
@@ -5,9 +9,57 @@ from app.db.session import SessionLocal
 from app.crud.notification import create_notification
 from app.db.models.user import User
 
-logger = logging.getLogger("notification_service")
+logger = logging.getLogger(__name__)
 
-async def send_notification(user_id: int, message: str):
+async def send_notification(
+    user_id: int,
+    title: str,
+    message: str,
+    notification_type: str,
+    priority: str = "normal",
+    db: Optional[AsyncSession] = None
+) -> Notification:
+    """
+    Send a notification to a user.
+    
+    Args:
+        user_id: The ID of the user to send the notification to
+        title: The title of the notification
+        message: The message content
+        notification_type: The type of notification (e.g., "health_alert", "health_insight")
+        priority: The priority level ("low", "normal", "high")
+        db: Optional database session. If not provided, notification will be logged only.
+    
+    Returns:
+        The created notification if db is provided, None otherwise
+    """
+    try:
+        # Log the notification
+        logger.info(f"Sending {notification_type} notification to user {user_id}: {title} - {message}")
+        
+        # If database session is provided, create notification record
+        if db:
+            notification = Notification(
+                user_id=user_id,
+                title=title,
+                message=message,
+                notification_type=notification_type,
+                priority=priority,
+                created_at=datetime.utcnow(),
+                is_read=False
+            )
+            db.add(notification)
+            await db.commit()
+            await db.refresh(notification)
+            return notification
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error sending notification: {str(e)}")
+        return None
+
+async def send_notification_via_email_and_sms(user_id: int, message: str):
     """Send a notification via email and SMS."""
     db = SessionLocal()
     

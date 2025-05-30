@@ -3,13 +3,35 @@ from sqlalchemy.future import select
 from datetime import datetime
 from app.db.models.practitioners import Practitioner  
 from app.schemas.practitioner import PractitionerCreate, PractitionerResponse
+from app.db.models.user import User, UserRoleInput
+from app.core.security import hash_password
+from fastapi.concurrency import run_in_threadpool
+import secrets
 
 async def create_practitioner(db: AsyncSession, practitioner: PractitionerCreate):
     """Create a new practitioner."""
+    # Create a new user for the practitioner if user_id is not provided
+    if not practitioner.user_id:
+        # Generate a temporary password
+        temp_password = secrets.token_urlsafe(12)
+        hashed_password = await run_in_threadpool(hash_password, temp_password)
+        
+        new_user = User(
+            email=f"{practitioner.name.lower().replace(' ', '.')}@healthcare.com",  # Generate a temporary email
+            full_name=practitioner.name,  # Use practitioner name as full name
+            password_hash=hashed_password,
+            role=UserRoleInput.PRACTITIONER,
+            is_active=True
+        )
+        db.add(new_user)
+        await db.flush()  # Flush to get the user ID
+        practitioner.user_id = new_user.id
+
     db_practitioner = Practitioner(
         name=practitioner.name,
         specialty=practitioner.specialty,
         contact_info=practitioner.contact_info,
+        user_id=practitioner.user_id
     )
     db.add(db_practitioner)
     await db.commit()
